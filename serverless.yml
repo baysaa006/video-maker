@@ -1,4 +1,4 @@
-service: eez-video-service
+service: video-maker
 
 provider:
   name: aws
@@ -33,7 +33,7 @@ custom:
         - - "arn:aws:states"
           - Ref: "AWS::Region"
           - Ref: "AWS::AccountId"
-          - "stateMachine:eez-video-service-${self:provider.stage}-machine"
+          - "stateMachine:video-maker-${self:provider.stage}-machine"
 
 resources:
   Resources:
