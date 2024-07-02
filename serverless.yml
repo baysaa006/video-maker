@@ -1,0 +1,118 @@
+service: eez-video-service
+
+provider:
+  name: aws
+  runtime: python3.8
+  region: ap-southeast-1
+  stage: ${opt:stage, 'dev'}
+  profile: author
+  environment:
+    STAGE: ${opt:stage, self:provider.stage}
+    REGION: ${opt:region, self:provider.region}
+    LAMBDA_ROLE: ${self:service}-${self:provider.stage}-role
+    EVENT_MACHINE: ${self:custom.env.event-machine}
+
+plugins:
+  - serverless-step-functions
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+    layer:
+      name: "sls-python38"
+      description: Python requirements lambda
+      compatibleRuntimes:
+        - python3.8
+    noDeploy:
+      - pytest
+  env:
+    event-machine:
+      Fn::Join:
+        - ":"
+        - - "arn:aws:states"
+          - Ref: "AWS::Region"
+          - Ref: "AWS::AccountId"
+          - "stateMachine:eez-video-service-${self:provider.stage}-machine"
+
+resources:
+  Resources:
+    LambdaServiceRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:provider.environment.LAMBDA_ROLE}
+        AssumeRolePolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:
+          - PolicyName: ${self:provider.environment.LAMBDA_ROLE}-policy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:logs"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - "log-group~:/aws/lambda/*:*:*"
+                - Effect: Allow
+                  Action:
+                    - states:StartExecution
+                  Resource:
+                    - ${self:provider.environment.EVENT_MACHINE}
+
+stepFunctions:
+  stateMachines:
+    notify-state-machine:
+      name: ${self:service}-${self:provider.stage}-machine
+      definition:
+        Comment: "Video creation workflow"
+        StartAt: createScript
+        States:
+          createScript:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [createScript, Arn]
+            Next: createImage
+          createImage:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [createImage, Arn]
+            Next: createVideo
+          createVideo:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [createVideo, Arn]
+            End: true
+
+functions:
+  createScript:
+    handler: src/handler.create_script
+    role: LambdaServiceRole
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
+
+  createImage:
+    handler: src/handler.create_image
+    role: LambdaServiceRole
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
+
+  createVideo:
+    handler: src/handler.create_video
+    role: LambdaServiceRole
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
